@@ -2,7 +2,7 @@
   primary_provider: gemini
   primary_model: gemini-2.5-flash
   fallback_provider: groq
-  fallback_model: llama-3.3-70b-versatile
+  fallback_model: openai/gpt-oss-120b
 
 embeddings:
   model: sentence-transformers/all-MiniLM-L6-v2

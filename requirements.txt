@@ -6,13 +6,15 @@ langchain-community
 
 # LLM providers (Gemini + Groq only)
 langchain-google-genai
-google-generativeai
+google-genai
 langchain-groq
 groq
 
 # Vector store / embeddings (fully local, no HF token needed)
 chromadb
 sentence-transformers
+langchain-chroma
+langchain-huggingface
 
 # Knowledge graph
 neo4j
@@ -35,6 +37,10 @@ pypdf
 
 # Evaluation
 ragas
+
+# Translation & text processing
+langdetect
+deep-translator
 
 # Dev
 jupyter
