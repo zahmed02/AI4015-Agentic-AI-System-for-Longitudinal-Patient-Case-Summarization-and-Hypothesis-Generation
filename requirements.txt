@@ -1,0 +1,42 @@
+﻿# Orchestration
+langgraph
+langchain
+langchain-core
+langchain-community
+
+# LLM providers (Gemini + Groq only)
+langchain-google-genai
+google-generativeai
+langchain-groq
+groq
+
+# Vector store / embeddings (fully local, no HF token needed)
+chromadb
+sentence-transformers
+
+# Knowledge graph
+neo4j
+
+# Tooling / MCP
+fastmcp
+
+# API layer
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+
+# Data + dataset download
+pandas
+numpy
+datasets
+huggingface_hub
+pypdf
+
+# Evaluation
+ragas
+
+# Dev
+jupyter
+pytest
+tqdm

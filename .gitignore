@@ -1,0 +1,11 @@
+﻿.env
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+data/knowledge_base/
+data/neo4j/
+logs/*.log
+*.ipynb_checkpoints
+.pytest_cache/
+.chroma/

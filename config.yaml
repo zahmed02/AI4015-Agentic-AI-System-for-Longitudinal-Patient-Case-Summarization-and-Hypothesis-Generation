@@ -1,0 +1,24 @@
+﻿llm:
+  primary_provider: gemini
+  primary_model: gemini-2.5-flash
+  fallback_provider: groq
+  fallback_model: llama-3.3-70b-versatile
+
+embeddings:
+  model: sentence-transformers/all-MiniLM-L6-v2
+
+chunking:
+  chunk_size: 1000
+  chunk_overlap: 150
+
+vector_store:
+  provider: chroma
+  persist_dir: ./data/knowledge_base/chroma
+  collection_name: patient_records
+
+knowledge_graph:
+  provider: neo4j
+
+paths:
+  raw_data: ./data/raw
+  processed_data: ./data/processed
