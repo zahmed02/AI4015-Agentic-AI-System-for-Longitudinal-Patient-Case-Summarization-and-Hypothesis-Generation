@@ -1,6 +1,7 @@
 """
 Diagnostician agent.
 Reads the clinical timeline and produces 3 differential diagnoses as JSON.
+Supports feedback-driven revision when critic feedback is present in state.
 """
 import re
 import json
@@ -20,7 +21,6 @@ logger = get_logger(__name__)
 
 
 def _strip_code_fences(text: str) -> str:
-    """Removes markdown code fences if the model added them."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
@@ -29,7 +29,6 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _extract_json_array(text: str) -> str:
-    """Returns the first JSON array substring found in the text."""
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1 or end < start:
@@ -38,7 +37,6 @@ def _extract_json_array(text: str) -> str:
 
 
 def _parse_hypotheses(raw: str) -> List[Hypothesis]:
-    """Converts the LLM output string into a list of Hypothesis dicts."""
     cleaned = _strip_code_fences(raw)
     json_str = _extract_json_array(cleaned)
     data = json.loads(json_str)
@@ -65,17 +63,30 @@ def _parse_hypotheses(raw: str) -> List[Hypothesis]:
 def diagnostician_node(state: AgentState) -> dict:
     """
     LangGraph node for the Diagnostician.
-    Reads: objective, clinical_timeline.
+    Reads: objective, clinical_timeline, optional critic_feedback and critic_issues.
     Writes: hypotheses.
     """
     objective = state["objective"]
     timeline = state.get("clinical_timeline", "")
+    prior_feedback = state.get("critic_feedback")
+    prior_issues = state.get("critic_issues")
 
     if not timeline or "cannot be built" in timeline.lower():
         logger.warning("Diagnostician: no valid timeline, skipping")
         return {"hypotheses": []}
 
-    user_msg = format_diagnostician_input(objective, timeline)
+    revision_mode = bool(prior_feedback or prior_issues)
+    if revision_mode:
+        logger.info("Diagnostician: running in revision mode (using critic feedback)")
+    else:
+        logger.info("Diagnostician: running in first-pass mode")
+
+    user_msg = format_diagnostician_input(
+        objective=objective,
+        clinical_timeline=timeline,
+        critic_feedback=prior_feedback,
+        critic_issues=prior_issues,
+    )
     llm = get_llm(temperature=0.0)
 
     try:
@@ -86,7 +97,7 @@ def diagnostician_node(state: AgentState) -> dict:
         raw = extract_text(response.content).strip()
     except Exception as e:
         logger.error(f"Diagnostician LLM call failed: {e}")
-        return {"hypotheses": []}
+        return {"hypotheses": state.get("hypotheses", [])}
 
     try:
         hypotheses = _parse_hypotheses(raw)
@@ -94,7 +105,7 @@ def diagnostician_node(state: AgentState) -> dict:
         logger.error(f"Diagnostician: JSON parse failed: {e}")
         preview = raw[:300].replace("\n", " ")
         logger.error(f"Raw output preview: {preview}")
-        return {"hypotheses": []}
+        return {"hypotheses": state.get("hypotheses", [])}
 
     logger.info(f"Diagnostician: produced {len(hypotheses)} hypotheses")
     for h in hypotheses:
