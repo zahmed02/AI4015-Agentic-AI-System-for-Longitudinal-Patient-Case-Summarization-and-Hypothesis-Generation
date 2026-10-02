@@ -46,3 +46,6 @@ deep-translator
 jupyter
 pytest
 tqdm
+
+# workflow visualization
+grandalf
