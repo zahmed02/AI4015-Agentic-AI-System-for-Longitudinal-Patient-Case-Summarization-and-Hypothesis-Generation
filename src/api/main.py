@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.graph.workflow import get_compiled_graph
 from src.retrieval.vector_store import get_vector_store
+from src.utils.guardrails import check_objective, append_disclaimer
 from src.api.schemas import (
     AnalysisRequest,
     AnalysisResponse,
@@ -91,6 +92,11 @@ def analyze(req: AnalysisRequest):
     Runs the full Historian, Diagnostician, Critic workflow.
     Returns the final state as a structured response.
     """
+    ok, reason = check_objective(req.objective)
+    if not ok:
+        logger.warning(f"Analyze request rejected by guardrails: {reason}")
+        raise HTTPException(status_code=400, detail=reason)
+
     logger.info(f"Analyze request: case_id={req.case_id} objective={req.objective[:60]}")
 
     app_graph = _get_graph()
@@ -138,7 +144,7 @@ def analyze(req: AnalysisRequest):
         critic_approved=final_state.get("critic_approved", False),
         critic_issues=final_state.get("critic_issues", []),
         critic_feedback=final_state.get("critic_feedback", ""),
-        clinical_timeline=final_state.get("clinical_timeline", ""),
+        clinical_timeline=append_disclaimer(final_state.get("clinical_timeline", "")),
         hypotheses=hypotheses,
         retrieved_chunks=chunks,
         runtime_seconds=round(elapsed, 2),

@@ -49,3 +49,5 @@ tqdm
 
 # workflow visualization
 grandalf
+# Config loading
+pyyaml

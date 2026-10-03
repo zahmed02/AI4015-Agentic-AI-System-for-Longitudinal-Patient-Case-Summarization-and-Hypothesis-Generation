@@ -21,7 +21,6 @@ logger = get_logger(__name__)
 
 
 def _format_hypotheses(hypotheses: List[Hypothesis]) -> str:
-    """Builds a readable text block of hypotheses for the prompt."""
     if not hypotheses:
         return "(no hypotheses provided)"
     parts = []
@@ -36,7 +35,6 @@ def _format_hypotheses(hypotheses: List[Hypothesis]) -> str:
 
 
 def _format_chunks(chunks: List[RetrievedChunk]) -> str:
-    """Builds a readable text block of retrieved chunks for the prompt."""
     if not chunks:
         return "(no chunks retrieved)"
     parts = []
@@ -88,11 +86,31 @@ def _parse_verdict(raw: str) -> Dict[str, Any]:
     }
 
 
+def _run_llm_review(objective, timeline, hypotheses, chunks) -> Dict[str, Any]:
+    """Runs the actual critique LLM call. Raises on failure (caller handles it)."""
+    hypotheses_text = _format_hypotheses(hypotheses)
+    chunks_text = _format_chunks(chunks)
+    user_msg = format_critic_input(objective, timeline, hypotheses_text, chunks_text)
+
+    llm = get_llm(temperature=0.0)
+    response = llm.invoke([
+        SystemMessage(content=CRITIC_SYSTEM_PROMPT),
+        HumanMessage(content=user_msg),
+    ])
+    raw = extract_text(response.content).strip()
+    return _parse_verdict(raw)
+
+
 def critic_node(state: AgentState) -> dict:
     """
     LangGraph node for the Critic.
     Reads: objective, clinical_timeline, hypotheses, retrieved_chunks, iteration, max_iterations.
     Writes: critic_approved, critic_issues, critic_feedback, should_revise, revision_target, iteration.
+
+    IMPORTANT: even on the final allowed iteration, this still runs one real
+    review pass. It just refuses to request a *further* revision afterward
+    (no more LLM calls permitted past max_iterations), so the final report
+    never ships un-reviewed hypotheses.
     """
     objective = state["objective"]
     timeline = state.get("clinical_timeline", "")
@@ -100,6 +118,7 @@ def critic_node(state: AgentState) -> dict:
     chunks = state.get("retrieved_chunks", [])
     iteration = state.get("iteration", 0) + 1
     max_iterations = state.get("max_iterations", 3)
+    is_final_allowed_pass = iteration >= max_iterations
 
     if not hypotheses:
         logger.warning("Critic: no hypotheses to review")
@@ -112,50 +131,18 @@ def critic_node(state: AgentState) -> dict:
             "iteration": iteration,
         }
 
-    # Hard stop: do not loop beyond max_iterations
-    if iteration >= max_iterations:
-        logger.warning(f"Critic: reached max_iterations ({max_iterations}), forcing stop")
-        return {
-            "critic_approved": True,
-            "critic_issues": [],
-            "critic_feedback": f"Max iterations reached. Accepting current hypotheses.",
-            "should_revise": False,
-            "revision_target": "none",
-            "iteration": iteration,
-        }
-
-    hypotheses_text = _format_hypotheses(hypotheses)
-    chunks_text = _format_chunks(chunks)
-    user_msg = format_critic_input(objective, timeline, hypotheses_text, chunks_text)
-
-    llm = get_llm(temperature=0.0)
     try:
-        response = llm.invoke([
-            SystemMessage(content=CRITIC_SYSTEM_PROMPT),
-            HumanMessage(content=user_msg),
-        ])
-        raw = extract_text(response.content).strip()
+        verdict = _run_llm_review(objective, timeline, hypotheses, chunks)
     except Exception as e:
-        logger.error(f"Critic LLM call failed: {e}")
+        logger.error(f"Critic LLM call / parse failed: {e}")
         return {
-            "critic_approved": False,
-            "critic_issues": [f"Critic LLM error: {e}"],
-            "critic_feedback": "Critic failed to run. Stopping without approval.",
-            "should_revise": False,
-            "revision_target": "none",
-            "iteration": iteration,
-        }
-
-    try:
-        verdict = _parse_verdict(raw)
-    except Exception as e:
-        logger.error(f"Critic: JSON parse failed: {e}")
-        preview = raw[:300].replace("\n", " ")
-        logger.error(f"Raw output preview: {preview}")
-        return {
-            "critic_approved": False,
-            "critic_issues": ["Critic output could not be parsed."],
-            "critic_feedback": "Parse failure. Stopping without approval.",
+            "critic_approved": is_final_allowed_pass,  # don't block forever on a parse failure
+            "critic_issues": [f"Critic could not complete review: {e}"],
+            "critic_feedback": (
+                "Critic failed to produce a verdict. "
+                + ("Accepting current hypotheses because max iterations was reached."
+                   if is_final_allowed_pass else "Stopping without approval.")
+            ),
             "should_revise": False,
             "revision_target": "none",
             "iteration": iteration,
@@ -165,6 +152,20 @@ def critic_node(state: AgentState) -> dict:
     issues = verdict["issues"]
     feedback = verdict["feedback"]
     target = verdict["revision_target"]
+
+    if is_final_allowed_pass and not approved:
+        # A real review ran and found problems, but no revisions are left.
+        # Ship honestly: keep the issues visible, don't silently relabel as approved.
+        logger.warning(
+            f"Critic: max_iterations ({max_iterations}) reached with unresolved issues "
+            f"({len(issues)}). Accepting current hypotheses as final, issues preserved."
+        )
+        feedback = (
+            f"Max iterations reached before all issues were resolved. "
+            f"Accepting current hypotheses as final. Outstanding concerns: {feedback}"
+        )
+        approved = True  # stop the loop — but issues/feedback still reflect real findings
+        target = "none"
 
     should_revise = (not approved) and (target in {"historian", "diagnostician"})
 

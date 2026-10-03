@@ -19,8 +19,14 @@ def main():
     ap.add_argument("--k", type=int, default=5, help="Number of results")
     args = ap.parse_args()
 
-    # Show total chunk count
-    count = get_vector_store()._collection.count()
+    store = get_vector_store()
+
+    # Show total chunk count AND compute the real distinct-case count
+    # (previously hardcoded as "73 cases" regardless of actual corpus size)
+    all_meta = store._collection.get(limit=100000, include=["metadatas"])["metadatas"]
+    count = len(all_meta)
+    total_cases = len({m.get("case_id") for m in all_meta if m.get("case_id")})
+
     print("=" * 70)
     print(f"  ChromaDB: {count} total chunks")
     print(f"  Query:    {args.query!r}")
@@ -44,7 +50,7 @@ def main():
 
     print("\n" + "=" * 70)
     print(f"  Distinct cases returned: {sorted(seen_cases)}")
-    print(f"  Total in corpus:         {count} chunks across 73 cases")
+    print(f"  Total in corpus:         {count} chunks across {total_cases} cases")
     print("=" * 70)
 
 

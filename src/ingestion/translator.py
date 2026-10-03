@@ -121,9 +121,9 @@ def _get_primary_chain():
 
 @lru_cache(maxsize=1)
 def _get_secondary_chain():
-    """Groq Qwen — Chinese-native, but tight TPM. Used as second attempt."""
+    """Groq gpt-oss-20b — faster/cheaper second attempt (Qwen on Groq is preview-tier pricing now)."""
     llm = ChatGroq(
-        model="qwen/qwen3.8-27b",
+        model="openai/gpt-oss-20b",
         groq_api_key=GROQ_KEY,
         temperature=0.0,
         max_tokens=8000,
@@ -133,9 +133,9 @@ def _get_secondary_chain():
 
 @lru_cache(maxsize=1)
 def _get_gemini_chain():
-    """Gemini 3.8-flash — last resort, tiny daily quota."""
+    """Gemini — last resort."""
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model="gemini-flash-latest",
         google_api_key=GEMINI_KEY,
         temperature=0.0,
     )

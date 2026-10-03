@@ -1,6 +1,6 @@
 ﻿llm:
   primary_provider: gemini
-  primary_model: gemini-2.5-flash
+  primary_model: gemini-flash-latest     # self-updating alias — avoids the next deprecation cliff
   fallback_provider: groq
   fallback_model: openai/gpt-oss-120b
 
@@ -18,6 +18,11 @@ vector_store:
 
 knowledge_graph:
   provider: neo4j
+  enabled: true
+
+guardrails:
+  require_disclaimer: true
+  max_objective_length: 500
 
 paths:
   raw_data: ./data/raw

@@ -1,6 +1,8 @@
 """
 Historian agent.
 Retrieves relevant case chunks and builds a structured clinical timeline.
+Enriches retrieval with Neo4j knowledge-graph context when available.
+Adapts retrieval breadth when the Critic routes back here for insufficient evidence.
 """
 from typing import List, Optional, Tuple
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -9,6 +11,7 @@ from langchain_core.documents import Document
 from src.agents.state import AgentState, RetrievedChunk
 from src.models.llm_client import get_llm
 from src.retrieval.vector_store import get_vector_store
+from src.retrieval.graph_retriever import get_graph_context
 from src.prompts.historian_prompts import (
     HISTORIAN_SYSTEM_PROMPT,
     format_historian_input,
@@ -19,14 +22,14 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_K = 8
+WIDENED_K = 16  # used when the Critic flags insufficient retrieval
 
 
 def _retrieve(
     objective: str,
     case_id: Optional[str],
-    k: int = DEFAULT_K,
+    k: int,
 ) -> List[Tuple[Document, float]]:
-    """Retrieves top-k chunks, optionally filtered by case_id."""
     store = get_vector_store()
     if case_id:
         return store.similarity_search_with_score(
@@ -36,7 +39,6 @@ def _retrieve(
 
 
 def _format_chunks_for_llm(results: List[Tuple[Document, float]]) -> str:
-    """Builds a readable text block of retrieved chunks for the prompt."""
     if not results:
         return "(no chunks retrieved)"
     parts = []
@@ -51,10 +53,7 @@ def _format_chunks_for_llm(results: List[Tuple[Document, float]]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _to_retrieved_chunks(
-    results: List[Tuple[Document, float]],
-) -> List[RetrievedChunk]:
-    """Converts LangChain Documents into RetrievedChunk dicts for state."""
+def _to_retrieved_chunks(results: List[Tuple[Document, float]]) -> List[RetrievedChunk]:
     out: List[RetrievedChunk] = []
     for doc, score in results:
         meta = doc.metadata
@@ -72,14 +71,27 @@ def _to_retrieved_chunks(
 def historian_node(state: AgentState) -> dict:
     """
     LangGraph node for the Historian.
-    Reads: objective, case_id.
+    Reads: objective, case_id, and (on a revision loop) critic_feedback/critic_issues
+           when revision_target was "historian".
     Writes: retrieved_chunks, clinical_timeline.
     """
     objective = state["objective"]
     case_id = state.get("case_id")
+    being_revised = state.get("revision_target") == "historian"
+    prior_feedback = state.get("critic_feedback") if being_revised else None
+    prior_issues = state.get("critic_issues") if being_revised else None
 
-    logger.info(f"Historian: retrieving chunks (case_id={case_id})")
-    results = _retrieve(objective, case_id)
+    # If the Critic specifically said retrieval was insufficient, actually
+    # change what we do: widen k and drop a hard case_id filter if present,
+    # since over-narrow filtering is the most common reason retrieval comes up short.
+    k = WIDENED_K if being_revised else DEFAULT_K
+    effective_case_id = None if being_revised else case_id
+
+    logger.info(
+        f"Historian: retrieving chunks (case_id={effective_case_id}, k={k}, "
+        f"revision_mode={being_revised})"
+    )
+    results = _retrieve(objective, effective_case_id, k)
     logger.info(f"Historian: retrieved {len(results)} chunks")
 
     if not results:
@@ -89,7 +101,17 @@ def historian_node(state: AgentState) -> dict:
         }
 
     chunks_text = _format_chunks_for_llm(results)
-    user_msg = format_historian_input(objective, chunks_text)
+
+    # Optional knowledge-graph enrichment (no-op if Neo4j/kg_builder hasn't been run yet).
+    graph_context = get_graph_context(case_id) if case_id else ""
+    if graph_context:
+        chunks_text += f"\n\n---\n\nKnown entities (knowledge graph):\n{graph_context}"
+
+    user_msg = format_historian_input(
+        objective, chunks_text,
+        critic_feedback=prior_feedback,
+        critic_issues=prior_issues,
+    )
 
     llm = get_llm(temperature=0.0)
     try:
