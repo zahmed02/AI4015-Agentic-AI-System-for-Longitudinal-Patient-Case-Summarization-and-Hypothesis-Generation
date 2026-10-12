@@ -1,23 +1,16 @@
 """
 Drug-drug interaction checker.
-Primary source: a small curated table of well-established, high-severity
-interactions (fast, offline, deterministic). Falls back to the NIH RxNav
-public API (no API key required) for anything not in the local table.
+Uses a small curated table of well-established, high-severity interactions
+(fast, offline, deterministic). The NIH RxNav interaction API that this module
+used to fall back to was discontinued by the NLM in January 2024, so the table
+is the only source. A pair that is NOT in the table is not proof that the
+combination is safe.
 
 NOTE: this is a decision-support aid, not a substitute for a pharmacist or
-a full interaction database (e.g., Micromedex/Lexicomp) — say so in output.
+a full interaction database (e.g., Micromedex/Lexicomp).
 """
-from typing import List, Dict
+from typing import Dict, List
 import itertools
-
-try:
-    import requests
-except ImportError:
-    requests = None
-
-from src.utils.logger import get_logger
-
-logger = get_logger(__name__)
 
 # (drug_a, drug_b) -> (severity, description). Stored lowercase, order-independent.
 KNOWN_INTERACTIONS: Dict[frozenset, Dict[str, str]] = {
@@ -52,48 +45,9 @@ KNOWN_INTERACTIONS: Dict[frozenset, Dict[str, str]] = {
 }
 
 
-def _check_local_table(drug_a: str, drug_b: str):
-    key = frozenset({drug_a.lower().strip(), drug_b.lower().strip()})
-    return KNOWN_INTERACTIONS.get(key)
-
-
-def _check_rxnav(drug_a: str, drug_b: str):
-    """Best-effort lookup against NIH RxNav (public, no API key). Fails soft."""
-    if requests is None:
-        return None
-    try:
-        # Resolve names to RxCUIs first
-        rxcuis = []
-        for name in (drug_a, drug_b):
-            resp = requests.get(
-                "https://rxnav.nlm.nih.gov/REST/rxcui.json",
-                params={"name": name}, timeout=5,
-            )
-            ids = resp.json().get("idGroup", {}).get("rxnormId", [])
-            if not ids:
-                return None
-            rxcuis.append(ids[0])
-
-        resp = requests.get(
-            "https://rxnav.nlm.nih.gov/REST/interaction/list.json",
-            params={"rxcuis": "+".join(rxcuis)}, timeout=5,
-        )
-        groups = resp.json().get("fullInteractionTypeGroup", [])
-        if not groups:
-            return None
-        pair = groups[0]["fullInteractionType"][0]["interactionPair"][0]
-        return {"severity": "unknown (RxNav)", "description": pair.get("description", "")}
-    except Exception as e:
-        logger.warning(f"RxNav lookup failed for ({drug_a}, {drug_b}): {e}")
-        return None
-
-
 def check_interaction(drug_a: str, drug_b: str) -> Dict:
-    result = _check_local_table(drug_a, drug_b)
-    source = "local"
-    if result is None:
-        result = _check_rxnav(drug_a, drug_b)
-        source = "rxnav"
+    key = frozenset({drug_a.lower().strip(), drug_b.lower().strip()})
+    result = KNOWN_INTERACTIONS.get(key)
     if result is None:
         return {
             "drug_a": drug_a, "drug_b": drug_b,
@@ -105,7 +59,7 @@ def check_interaction(drug_a: str, drug_b: str) -> Dict:
         "interaction_found": True,
         "severity": result["severity"],
         "description": result["description"],
-        "source": source,
+        "source": "curated table",
     }
 
 
@@ -122,8 +76,9 @@ def drug_interaction_tool(medication_list: List[str]) -> str:
 
     if not flagged:
         return (
-            f"No known interactions found among: {', '.join(medication_list)}. "
-            "This checks a curated table plus NIH RxNav — not a substitute for pharmacist review."
+            f"No interaction found in the curated table ({len(KNOWN_INTERACTIONS)} well-known pairs) "
+            f"among: {', '.join(medication_list)}. This does not mean the combination is safe. "
+            "Not a substitute for pharmacist review."
         )
 
     lines = [
@@ -131,4 +86,4 @@ def drug_interaction_tool(medication_list: List[str]) -> str:
         for r in flagged
     ]
     return "Potential interactions found:\n" + "\n".join(lines) + \
-        "\n\nThis is decision support, not a substitute for pharmacist review."
+        "\n\nDecision support only, not a substitute for pharmacist review."

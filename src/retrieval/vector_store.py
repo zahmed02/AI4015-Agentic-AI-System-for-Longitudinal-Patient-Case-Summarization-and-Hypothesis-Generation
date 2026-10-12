@@ -2,6 +2,7 @@
 ChromaDB vector store: embeds English chunks with a local sentence-transformer.
 """
 import os
+from functools import lru_cache
 from typing import List
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
@@ -15,8 +16,9 @@ CHROMA_DIR = os.getenv("CHROMA_PERSIST_DIR", "./data/knowledge_base/chroma")
 COLLECTION = "patient_records"
 
 
+@lru_cache(maxsize=1)
 def get_embeddings():
-    """Local HuggingFace embeddings — no API key required."""
+    """Local HuggingFace embeddings, no API key required. Cached: the model loads once per process."""
     return HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL,
         model_kwargs={"device": "cpu"},

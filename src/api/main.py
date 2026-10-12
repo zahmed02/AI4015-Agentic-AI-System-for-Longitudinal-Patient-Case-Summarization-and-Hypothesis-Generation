@@ -3,14 +3,15 @@ ChronoMed FastAPI application.
 Exposes the agentic workflow over HTTP for the frontend layer.
 """
 import time
-from typing import List
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.graph.workflow import get_compiled_graph
 from src.retrieval.vector_store import get_vector_store
 from src.utils.guardrails import check_objective, append_disclaimer
+from src.api.jobs import get_job, start_job
+from src.api.routes_extra import router as extra_router
 from src.api.schemas import (
     AnalysisRequest,
     AnalysisResponse,
@@ -19,15 +20,30 @@ from src.api.schemas import (
     HealthResponse,
     CasesResponse,
     CaseInfo,
+    JobStartResponse,
+    JobStatusResponse,
 )
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the embedding model once at startup so the first request is not slow.
+    try:
+        get_vector_store()
+        logger.info("Vector store warmed up.")
+    except Exception as e:
+        logger.warning(f"Vector store warm-up failed: {e}")
+    yield
+
+
 app = FastAPI(
     title="ChronoMed API",
     description="Agentic AI for longitudinal clinical reasoning",
-    version="1.0.0",
+    version="1.1.0",
+    lifespan=lifespan,
 )
 
 # Allow all origins for now. Restrict before production.
@@ -54,6 +70,8 @@ async def ensure_utf8_json(request: Request, call_next):
     return response
 
 
+app.include_router(extra_router)
+
 # Lazily compiled graph. Built on first request to avoid slow startup.
 _compiled_graph = None
 
@@ -76,6 +94,41 @@ def _compute_status(state):
     return "NOT_CONVERGED"
 
 
+def build_analysis_response(final_state: dict, elapsed: float) -> AnalysisResponse:
+    hypotheses = [
+        HypothesisResponse(
+            diagnosis=h.get("diagnosis", ""),
+            confidence=h.get("confidence", 0.0),
+            evidence=h.get("evidence", []),
+            reasoning=h.get("reasoning", ""),
+            citations=h.get("citations", []),
+        )
+        for h in final_state.get("hypotheses", [])
+    ]
+    chunks = [
+        RetrievedChunkResponse(
+            chunk_id=c.get("chunk_id", ""),
+            case_id=c.get("case_id", ""),
+            title=c.get("title", ""),
+            specialty=c.get("specialty", ""),
+            score=c.get("score", 0.0),
+            preview=c.get("content", "")[:300],
+        )
+        for c in final_state.get("retrieved_chunks", [])
+    ]
+    return AnalysisResponse(
+        status=_compute_status(final_state),
+        iterations_used=final_state.get("iteration", 0),
+        critic_approved=final_state.get("critic_approved", False),
+        critic_issues=final_state.get("critic_issues", []),
+        critic_feedback=final_state.get("critic_feedback", ""),
+        clinical_timeline=append_disclaimer(final_state.get("clinical_timeline", "")),
+        hypotheses=hypotheses,
+        retrieved_chunks=chunks,
+        runtime_seconds=round(elapsed, 2),
+    )
+
+
 @app.get("/health", response_model=HealthResponse)
 def health():
     try:
@@ -89,8 +142,8 @@ def health():
 @app.post("/analyze", response_model=AnalysisResponse)
 def analyze(req: AnalysisRequest):
     """
-    Runs the full Historian, Diagnostician, Critic workflow.
-    Returns the final state as a structured response.
+    Blocking version: runs the full Historian, Diagnostician, Critic workflow
+    and returns the final state. The frontend uses /analyze/start instead.
     """
     ok, reason = check_objective(req.objective)
     if not ok:
@@ -99,7 +152,6 @@ def analyze(req: AnalysisRequest):
 
     logger.info(f"Analyze request: case_id={req.case_id} objective={req.objective[:60]}")
 
-    app_graph = _get_graph()
     initial_state = {
         "objective": req.objective,
         "case_id": req.case_id,
@@ -109,46 +161,40 @@ def analyze(req: AnalysisRequest):
 
     start = time.time()
     try:
-        final_state = app_graph.invoke(initial_state)
+        final_state = _get_graph().invoke(initial_state)
     except Exception as e:
         logger.error(f"Graph invocation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Agent workflow failed: {e}")
-    elapsed = time.time() - start
 
-    hypotheses = [
-        HypothesisResponse(
-            diagnosis=h.get("diagnosis", ""),
-            confidence=h.get("confidence", 0.0),
-            evidence=h.get("evidence", []),
-            reasoning=h.get("reasoning", ""),
-            citations=h.get("citations", []),
-        )
-        for h in final_state.get("hypotheses", [])
-    ]
+    return build_analysis_response(final_state, time.time() - start)
 
-    chunks = [
-        RetrievedChunkResponse(
-            chunk_id=c.get("chunk_id", ""),
-            case_id=c.get("case_id", ""),
-            title=c.get("title", ""),
-            specialty=c.get("specialty", ""),
-            score=c.get("score", 0.0),
-            preview=c.get("content", "")[:300],
-        )
-        for c in final_state.get("retrieved_chunks", [])
-    ]
 
-    return AnalysisResponse(
-        status=_compute_status(final_state),
-        iterations_used=final_state.get("iteration", 0),
-        critic_approved=final_state.get("critic_approved", False),
-        critic_issues=final_state.get("critic_issues", []),
-        critic_feedback=final_state.get("critic_feedback", ""),
-        clinical_timeline=append_disclaimer(final_state.get("clinical_timeline", "")),
-        hypotheses=hypotheses,
-        retrieved_chunks=chunks,
-        runtime_seconds=round(elapsed, 2),
+@app.post("/analyze/start", response_model=JobStartResponse)
+def analyze_start(req: AnalysisRequest):
+    """Starts the workflow in the background and returns a job id to poll."""
+    ok, reason = check_objective(req.objective)
+    if not ok:
+        logger.warning(f"Analyze request rejected by guardrails: {reason}")
+        raise HTTPException(status_code=400, detail=reason)
+
+    case_id = req.case_id or None
+    logger.info(f"Analyze job: case_id={case_id} objective={req.objective[:60]}")
+    job_id = start_job(
+        graph=_get_graph(),
+        objective=req.objective,
+        case_id=case_id,
+        max_iterations=req.max_iterations,
+        build_result=lambda state, elapsed: build_analysis_response(state, elapsed).model_dump(),
     )
+    return JobStartResponse(job_id=job_id, status="running")
+
+
+@app.get("/analyze/jobs/{job_id}", response_model=JobStatusResponse)
+def analyze_job(job_id: str):
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found. The API may have been restarted.")
+    return job
 
 
 @app.get("/cases", response_model=CasesResponse)

@@ -1,0 +1,47 @@
+/* Dark medical theme. Loaded after globals.css so these tokens win. */
+.dark {
+  --background: #050a12;
+  --foreground: #e4eef6;
+  --card: #0a1320;
+  --card-foreground: #e4eef6;
+  --popover: #0a1320;
+  --popover-foreground: #e4eef6;
+  --primary: #22d3ee;
+  --primary-foreground: #04131a;
+  --secondary: #101d2e;
+  --secondary-foreground: #e4eef6;
+  --muted: #0d1828;
+  --muted-foreground: #8197ad;
+  --accent: #12263b;
+  --accent-foreground: #e4eef6;
+  --destructive: #f43f5e;
+  --border: #15283d;
+  --input: #15283d;
+  --ring: #22d3ee;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  color: var(--foreground);
+  background:
+    radial-gradient(1100px 560px at 88% -8%, rgba(34, 211, 238, 0.09), transparent 60%),
+    radial-gradient(900px 520px at -8% 108%, rgba(16, 185, 129, 0.07), transparent 60%),
+    #050a12;
+  background-attachment: fixed;
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+  background-size: 38px 38px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1b3350 transparent;
+}

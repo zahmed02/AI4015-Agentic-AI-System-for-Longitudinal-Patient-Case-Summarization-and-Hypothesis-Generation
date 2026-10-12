@@ -1,8 +1,12 @@
 """
 Builds the Neo4j knowledge graph from indexed MedChain documents.
-Extracts (Case)-[:HAS_SYMPTOM|HAS_DIAGNOSIS|RECEIVED_TREATMENT]->(Entity)
-triples via a single structured-JSON LLM call per document, then MERGEs
-them into Neo4j (idempotent — safe to rerun).
+Per case it stores:
+  (Case)-[:HAS_SYMPTOM]->(Symptom)
+  (Case)-[:HAS_CONFIRMED_DIAGNOSIS]->(Diagnosis)
+  (Case)-[:CONSIDERED_DIAGNOSIS]->(Diagnosis)
+  (Case)-[:RECEIVED_TREATMENT]->(Treatment)
+One structured-JSON LLM call per document extracts the entities; MERGE makes
+reruns safe (idempotent).
 """
 import os
 import re
@@ -48,12 +52,32 @@ Rules:
 Output only the JSON object. No markdown fences, no preamble.
 """
 
+# FOREACH (not UNWIND) on purpose: UNWIND on an empty list produces zero rows and
+# silently stops the rest of the query, which used to drop the treatments of every
+# case that had no differential diagnoses.
+_WRITE_QUERY = """
+MERGE (c:Case {case_id: $case_id})
+SET c.title = $title
+FOREACH (s IN $symptoms |
+  MERGE (sym:Symptom {name: toLower(s)})
+  MERGE (c)-[:HAS_SYMPTOM]->(sym))
+FOREACH (d IN $confirmed |
+  MERGE (dx:Diagnosis {name: toLower(d)})
+  MERGE (c)-[:HAS_CONFIRMED_DIAGNOSIS]->(dx))
+FOREACH (d IN $differential |
+  MERGE (dx:Diagnosis {name: toLower(d)})
+  MERGE (c)-[:CONSIDERED_DIAGNOSIS]->(dx))
+FOREACH (t IN $treatments |
+  MERGE (tx:Treatment {name: toLower(t)})
+  MERGE (c)-[:RECEIVED_TREATMENT]->(tx))
+"""
+
 
 def _extract_entities(text: str) -> Dict[str, List[str]]:
     llm = get_llm(temperature=0.0)
     response = llm.invoke([
         SystemMessage(content=EXTRACTION_PROMPT),
-        HumanMessage(content=text[:4000]),
+        HumanMessage(content=text[:4000]),  # cap input length
     ])
     raw = extract_text(response.content).strip()
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.IGNORECASE).strip()
@@ -68,29 +92,9 @@ def _extract_entities(text: str) -> Dict[str, List[str]]:
 
 
 def _write_to_neo4j(driver, case_id: str, title: str, entities: Dict[str, List[str]]):
-    query = """
-    MERGE (c:Case {case_id: $case_id})
-    SET c.title = $title
-    WITH c
-    UNWIND $symptoms AS s
-      MERGE (sym:Symptom {name: toLower(s)})
-      MERGE (c)-[:HAS_SYMPTOM]->(sym)
-    WITH c
-    UNWIND $confirmed AS d
-      MERGE (dx:Diagnosis {name: toLower(d)})
-      MERGE (c)-[:HAS_CONFIRMED_DIAGNOSIS]->(dx)
-    WITH c
-    UNWIND $differential AS d
-      MERGE (dx:Diagnosis {name: toLower(d)})
-      MERGE (c)-[:CONSIDERED_DIAGNOSIS]->(dx)
-    WITH c
-    UNWIND $treatments AS t
-      MERGE (tx:Treatment {name: toLower(t)})
-      MERGE (c)-[:RECEIVED_TREATMENT]->(tx)
-    """
     with driver.session() as session:
         session.run(
-            query,
+            _WRITE_QUERY,
             case_id=str(case_id), title=title,
             symptoms=entities["symptoms"],
             confirmed=entities["confirmed_diagnoses"],
@@ -102,8 +106,7 @@ def _write_to_neo4j(driver, case_id: str, title: str, entities: Dict[str, List[s
 def build_graph_from_documents(docs: List[Document], skip_existing: bool = True) -> int:
     """
     Builds/updates the knowledge graph from a list of (already-translated,
-    English) Documents — the same Document objects produced by loader.py.
-    Returns the number of cases successfully written.
+    English) Documents. Returns the number of cases successfully written.
     """
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     written = 0
@@ -142,11 +145,10 @@ def build_graph_for_case_ids(case_ids, raw_dir: str = "./data/raw/MedChain", ski
     """
     Builds/updates the KG for specific case IDs, independent of the main
     ingestion pipeline's resume pointer (which only tracks "next unembedded
-    cases" and will never revisit cases already in Chroma).
+    cases" and never revisits cases already in Chroma).
     Reuses the translation cache, so already-translated cases cost zero
-    extra translation API calls — only the entity-extraction call is new.
+    extra translation API calls. Only the entity-extraction call is new.
     """
-    import json
     from src.ingestion.loader import _record_to_document, MERGED_CASES_FILE
 
     path = os.path.join(raw_dir, MERGED_CASES_FILE)
