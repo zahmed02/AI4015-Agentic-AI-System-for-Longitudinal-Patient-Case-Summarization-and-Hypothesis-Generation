@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ChevronDown, Loader2, Minus, Play, Plus } from "lucide-react";
@@ -33,18 +33,24 @@ interface Props {
 
 export function AnalysisForm({ cases, casesLoading, caseFromUrl, busy, error, onSubmit }: Props) {
   const {
-    register, handleSubmit, setValue, watch, formState: { errors },
+    register, handleSubmit, setValue, control, formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { objective: "", case_id: caseFromUrl, max_iterations: 2 },
   });
 
-  useEffect(() => {
-    if (caseFromUrl) setValue("case_id", caseFromUrl);
-  }, [caseFromUrl, setValue]);
+  // useWatch keeps these values reactive without the unmemoizable watch() function.
+  const objective = useWatch({ control, name: "objective" });
+  const iterations = useWatch({ control, name: "max_iterations" });
 
-  const objective = watch("objective");
-  const iterations = watch("max_iterations");
+  // The case list loads asynchronously. Setting the dropdown before its options exist leaves
+  // the form value and the visible choice out of sync, so the URL case is applied only once
+  // that case is actually listed.
+  const urlCaseListed = !!caseFromUrl && cases.some((c) => c.case_id === caseFromUrl);
+  useEffect(() => {
+    if (urlCaseListed) setValue("case_id", caseFromUrl);
+  }, [urlCaseListed, caseFromUrl, setValue]);
+
   const accent = SECTION.analyze.accent;
 
   return (

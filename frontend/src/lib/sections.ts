@@ -1,5 +1,5 @@
 import {
-  FlaskConical, FolderOpen, LayoutDashboard, Network, ShieldCheck, Stethoscope,
+  FlaskConical, FolderOpen, LayoutDashboard, Network, ShieldCheck, Stethoscope, Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -53,6 +53,11 @@ export const ACCENTS = {
     borderHover: "hover:border-rose-400/60", solid: "bg-rose-400",
     gradient: "from-rose-400 to-pink-500", glow: "shadow-[0_0_40px_-14px_rgba(251,113,133,0.55)]",
   },
+  indigo: {
+    text: "text-indigo-300", bgSoft: "bg-indigo-500/10", border: "border-indigo-500/25",
+    borderHover: "hover:border-indigo-400/60", solid: "bg-indigo-400",
+    gradient: "from-indigo-400 to-blue-500", glow: "shadow-[0_0_40px_-14px_rgba(129,140,248,0.55)]",
+  },
 } satisfies Record<string, Accent>;
 
 export const SECTION = {
@@ -81,6 +86,11 @@ export const SECTION = {
     description: "Lab interpretation, drug interaction checks and medical reference search.",
     icon: FlaskConical, accent: ACCENTS.amber,
   },
+  pipeline: {
+    href: "/pipeline", label: "Pipeline", title: "Pipeline",
+    description: "How a case travels through ChronoMed: data preparation, the agent loop, the LLM calls and where everything is stored.",
+    icon: Workflow, accent: ACCENTS.indigo,
+  },
   system: {
     href: "/system", label: "System & Safety", title: "System & Safety",
     description: "Service health, model configuration, pipeline, guardrails and MCP tools.",
@@ -89,7 +99,8 @@ export const SECTION = {
 } satisfies Record<string, Section>;
 
 export const SECTION_LIST: Section[] = [
-  SECTION.dashboard, SECTION.analyze, SECTION.cases, SECTION.graph, SECTION.tools, SECTION.system,
+  SECTION.dashboard, SECTION.analyze, SECTION.cases, SECTION.graph, SECTION.tools,
+  SECTION.pipeline, SECTION.system,
 ];
 
 export function getSection(pathname: string): Section {

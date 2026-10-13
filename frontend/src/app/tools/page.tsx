@@ -111,7 +111,7 @@ function DrugTool() {
   };
 
   return (
-    <Panel title="Drug interaction checker" description="Checks every pair in the list against a curated table, then NIH RxNav" icon={Pill} accent={accent}>
+    <Panel title="Drug interaction checker" description="Checks every pair in the list against a curated table of well-known high-risk interactions" icon={Pill} accent={accent}>
       <div className="space-y-4">
         <div className="flex gap-3">
           <input
@@ -147,7 +147,7 @@ function DrugTool() {
 
       {data && (
         <div className="mt-6 space-y-2">
-          <p className="mb-3 text-sm"><span className="font-mono text-amber-300">{data.flagged_count}</span> of {data.pairs.length} pairs have a known interaction.</p>
+          <p className="mb-3 text-sm"><span className="font-mono text-amber-300">{data.flagged_count}</span> of {data.pairs.length} pairs match an interaction in the curated table.</p>
           {data.pairs.map((p, i) => (
             <motion.div key={`${p.drug_a}-${p.drug_b}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
               className={cn("rounded-xl border p-4", p.interaction_found ? "border-border bg-background/50" : "border-border/60 bg-background/30")}>
@@ -156,7 +156,7 @@ function DrugTool() {
                 {p.interaction_found ? (
                   <span className={cn("rounded-md border px-2 py-0.5 text-xs font-medium uppercase", SEVERITY[p.severity ?? ""] ?? "border-slate-500/40 bg-slate-500/10 text-slate-300")}>{p.severity}</span>
                 ) : (
-                  <span className="text-xs text-muted-foreground">No known interaction</span>
+                  <span className="text-xs text-muted-foreground">Not in the curated table</span>
                 )}
               </div>
               {p.description && <p className="mt-2 text-sm text-muted-foreground">{p.description}</p>}

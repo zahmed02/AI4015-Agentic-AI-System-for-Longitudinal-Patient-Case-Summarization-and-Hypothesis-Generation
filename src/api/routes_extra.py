@@ -106,7 +106,7 @@ def tool_drugs(req: DrugRequest):
     return DrugResponse(
         pairs=pairs,
         flagged_count=sum(1 for p in pairs if p.interaction_found),
-        disclaimer="Decision support only: a curated table plus NIH RxNav. Not a substitute for pharmacist review.",
+        disclaimer="Decision support only: checks a small curated table of well-known high-risk interactions. A pair that is not listed is not proof of safety. Not a substitute for pharmacist review.",
     )
 
 
