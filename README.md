@@ -1,6 +1,6 @@
 # Agentic AI System for Longitudinal Patient Case Summarization & Hypothesis Generation
 
-# Course: AI4015 Agentic Artificial Intelligence
+## Course: AI4015 Agentic Artificial Intelligence
 
 A full-stack AI application designed to demonstrate how multiple specialized agents can collaborate to solve complex clinical reasoning tasks. Unlike a standard chatbot, ChronoMed uses a stateful, self-correcting loop to summarize longitudinal patient histories, propose differential diagnoses, and critically evaluate its own reasoning against retrieved evidence.
 
@@ -37,21 +37,30 @@ The system is built on **LangGraph** and uses a three-agent pipeline that loops 
 
 ```text
 AI4015-Agentic-AI-Project/
-├── data/                  # Raw MedChain dataset, ChromaDB, translation cache
-├── docs/                  # Architecture diagrams and evaluation notes
-├── frontend/              # Next.js web application
-├── scripts/               # CLI runners (ingestion, KG building, evaluation)
-├── src/                   # Python backend
-│   ├── agents/            # LangGraph nodes (Historian, Diagnostician, Critic)
-│   ├── api/               # FastAPI routes, background job runner
-│   ├── graph/             # StateGraph workflow definition
-│   ├── ingestion/         # Loading, translation, chunking, KG extraction
+├── data/                  # Raw dataset, ChromaDB, Neo4j volumes, translation cache
+├── docs/                  # Architecture diagrams (Mermaid and PNG)
+├── external/              # Cloned MedChain reference code
+├── frontend/              # Next.js web application (TypeScript, Tailwind)
+├── logs/                  # Runtime log files
+├── notebooks/             # Jupyter notebooks for exploration
+├── scripts/               # CLI tools for ingestion, KG building, testing
+├── src/                   # Python backend source code
+│   ├── agents/            # Historian, Diagnostician, Critic nodes
+│   ├── api/               # FastAPI app, routes, schemas, job runner
+│   ├── evaluation/        # RAGAS offline evaluation scripts
+│   ├── graph/             # LangGraph workflow definition
+│   ├── ingestion/         # Loaders, translators, chunkers, KG builder
+│   ├── mcp_server/        # Model Context Protocol server
+│   ├── models/            # LLM client factory
 │   ├── prompts/           # System prompts for each agent
-│   ├── retrieval/         # Vector store and Graph retriever wrappers
-│   ├── tools/             # Lab calculator, drug interactions, web search
-│   └── utils/             # Guardrails, config, logger
-├── tests/                 # Pytest suite for deterministic logic
-├── docker-compose.yml     # Spins up Neo4j
+│   ├── retrieval/         # ChromaDB and Neo4j wrappers
+│   ├── tools/             # Lab calculator, drug interaction, web search
+│   └── utils/             # Config, logger, guardrails
+├── tests/                 # Pytest unit tests
+├── .env                   # API keys and connection strings
+├── config.yaml            # Non-secret configuration (models, limits)
+├── docker-compose.yml     # Spins up the local Neo4j container
+├── pytest.ini             # Test configuration and markers
 └── requirements.txt       # Python dependencies
 ```
 
