@@ -1,10 +1,8 @@
 # Agentic AI System for Longitudinal Patient Case Summarization and Hypothesis Generation
 
-**Course:** AI4015 Agentic Artificial Intelligence
+## **Course:** AI4015 Agentic Artificial Intelligence
 
 A full-stack AI application where three specialized AI agents work together on clinical cases. Unlike a normal chatbot, it runs a stateful, self-correcting loop: it builds a patient timeline from retrieved evidence, proposes three differential diagnoses, and then checks its own reasoning before returning a report.
-
-> **Research project only.** Outputs are not a diagnosis and must not be used for clinical decisions. Every report ends with a disclaimer.
 
 ## Key Features
 
